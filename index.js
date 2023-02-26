@@ -1,12 +1,16 @@
 import express from "express";
 import mongoose from "mongoose";
-import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import { validationResult } from "express-validator";
 
 import { passwordDB } from "./constants/db.js";
+import { registerValidation } from "./validations/auth.js";
+import UserModel from "./models/User.js";
+import jwt from "jsonwebtoken";
 
 mongoose
 	.connect(
-		`mongodb+srv://userExp:${passwordDB}@cluster0.nh0vt.mongodb.net/?retryWrites=true&w=majority`
+		`mongodb+srv://userExp:${passwordDB}@cluster0.nh0vt.mongodb.net/blog?retryWrites=true&w=majority`
 	)
 	.then(() => console.log("DB OK"))
 	.catch((err) => console.log("Error"));
@@ -19,24 +23,50 @@ app.get("/", (req, res) => {
 	res.send("Hello World!");
 });
 
-app.post("/auth/register", (req, res) => {
-	const token = jwt.sign(
-		{
-			pass: req.body.pass,
-			test: 421,
-		},
-		"secret123"
-	);
+app.post("/auth/register", registerValidation, async (req, res) => {
+	try {
+		const errors = validationResult(req);
 
-	res.json({
-		test: 323,
-		token,
-	});
+		if (!errors.isEmpty()) {
+			console.log("Error");
+			res.status(400).json(errors.array());
+		}
+
+		const password = req.body.password;
+		const salt = await bcrypt.genSalt(10);
+		const hash = await bcrypt.hash(password, salt);
+
+		const doc = new UserModel({
+			fullName: req.body.fullName,
+			email: req.body.email,
+			passwordHash: hash,
+			avatarUrl: req.body.avatarUrl,
+		});
+
+		const user = await doc.save();
+		const token = jwt.sign(
+			{
+				_id: user._id,
+			},
+			"secret123",
+			{
+				expiresIn: "30d",
+			}
+		);
+
+		const { passwordHash, ...userData } = user._doc;
+
+		res.json({
+			...userData,
+			token,
+		});
+	} catch (error) {
+		res.status(500).json(error);
+	}
 });
 
 app.listen(3000, (err) => {
 	if (err) {
-		alert(err);
 		console.log(err);
 	}
 
